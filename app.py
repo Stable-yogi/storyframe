@@ -13,7 +13,7 @@ scene prompt before rendering.
 Shared free and as-is. No support. Read it, run it, rebuild it however you like.
 Every connection here points at your own machine (Ollama, ComfyUI, this server).
 """
-import json, os, glob, time
+import json, os, glob, time, re
 from pathlib import Path
 import requests
 from fastapi import FastAPI, Body, Request
@@ -113,6 +113,9 @@ async def send(data: dict = Body(default={})):
         })
         res.raise_for_status()
         full = res.json().get("message", {}).get("content", "").strip()
+        # Reasoning models (e.g. DeepSeek-R1) emit their chain-of-thought in <think>...</think>;
+        # drop it so it never leaks into the narration or the scene prompt.
+        full = re.sub(r'(?is)<think>.*?</think>', '', full).strip()
         narration, scene = full.split("[SCENE]", 1) if "[SCENE]" in full else (full, last_scene_prompt)
         last_narration = narration.strip() or last_narration
         last_scene_prompt = scene.strip() or last_scene_prompt
