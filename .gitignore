@@ -1,0 +1,7 @@
+# Local config with your machine's paths (ship config.example.json instead)
+config.json
+
+# Generated images and caches
+static/outputs/
+__pycache__/
+*.pyc

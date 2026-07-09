@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/web_ui/style.css">
+  <title>StoryFrame</title>
+</head>
+<body>
+  <header>
+    <h1>StoryFrame</h1>
+    <div class="header-tools">
+      <span class="status" title="Service status">
+        <span class="dot" id="dot-llm"></span>LLM
+        <span class="dot" id="dot-comfy"></span>ComfyUI
+      </span>
+      <button class="ghost" onclick="toggleSettings()">Settings</button>
+      <button class="ghost" onclick="resetStory()">Reset story</button>
+    </div>
+  </header>
+
+  <!-- Inline settings panel -->
+  <div id="settings" class="settings hidden">
+    <div class="settings-grid">
+      <label>Ollama model <input id="s-model" type="text"></label>
+      <label>Checkpoint <input id="s-ckpt" type="text"></label>
+      <label>Story theme <select id="s-theme"></select></label>
+      <label>Sampler <input id="s-sampler" type="text"></label>
+      <label>Scheduler <input id="s-scheduler" type="text"></label>
+      <div class="sub">
+        <div class="sub-title">Quick preview</div>
+        <div class="sub-row">
+          <label>W <input id="p-w" type="number"></label>
+          <label>H <input id="p-h" type="number"></label>
+          <label>Steps <input id="p-steps" type="number"></label>
+          <label>CFG <input id="p-cfg" type="number" step="0.1"></label>
+        </div>
+      </div>
+      <div class="sub">
+        <div class="sub-title">Full scene</div>
+        <div class="sub-row">
+          <label>W <input id="c-w" type="number"></label>
+          <label>H <input id="c-h" type="number"></label>
+          <label>Steps <input id="c-steps" type="number"></label>
+          <label>CFG <input id="c-cfg" type="number" step="0.1"></label>
+        </div>
+      </div>
+    </div>
+    <div class="settings-actions">
+      <button onclick="saveSettings(this)">Save settings</button>
+      <span id="s-msg" class="s-msg"></span>
+    </div>
+  </div>
+
+  <main>
+    <section class="panel">
+      <div class="label">Quick preview</div>
+      <div class="frame small"><img id="preview-img" src="{{ preview_url }}" alt="Quick preview"></div>
+      <button onclick="render('preview', this)">Render preview (fast)</button>
+    </section>
+
+    <section class="panel story">
+      <div id="narration" class="narration">{{ narration }}</div>
+
+      <details class="scene-editor">
+        <summary>Scene prompt</summary>
+        <textarea id="scene-text" rows="3" placeholder="The image prompt for the current scene..."></textarea>
+        <button class="ghost small-btn" onclick="applyScene(this)">Apply edits</button>
+      </details>
+
+      <div class="input-row">
+        <input id="story-input" type="text" placeholder="Type what happens next..."
+               onkeydown="if(event.key==='Enter') sendLine()">
+        <button onclick="sendLine()">Continue</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="label">Full scene</div>
+      <div class="frame large"><img id="scene-img" src="{{ scene_url }}" alt="Full scene"></div>
+      <button onclick="render('scene', this)">Render scene (full)</button>
+    </section>
+  </main>
+
+  <script>
+    // ── Service status ──
+    async function loadStatus() {
+      try {
+        const d = await (await fetch('/api/status')).json();
+        setDot('dot-llm', d.ollama); setDot('dot-comfy', d.comfyui);
+      } catch (e) { setDot('dot-llm', false); setDot('dot-comfy', false); }
+    }
+    function setDot(id, ok) {
+      const el = document.getElementById(id);
+      el.classList.toggle('on', !!ok); el.classList.toggle('off', !ok);
+    }
+
+    // ── Settings panel ──
+    async function toggleSettings() {
+      const p = document.getElementById('settings');
+      const opening = p.classList.contains('hidden');
+      p.classList.toggle('hidden');
+      if (opening) await loadSettings();
+    }
+    async function loadSettings() {
+      const d = await (await fetch('/api/settings')).json();
+      const set = (id, v) => { document.getElementById(id).value = (v === undefined || v === null) ? '' : v; };
+      set('s-model', d.ollama_model); set('s-ckpt', d.checkpoint_name);
+      set('s-sampler', d.sampler); set('s-scheduler', d.scheduler);
+      document.getElementById('s-theme').innerHTML =
+        (d.themes || []).map(t => `<option value="${t}"${t === d.theme ? ' selected' : ''}>${t}</option>`).join('');
+      set('p-w', d.preview.width); set('p-h', d.preview.height); set('p-steps', d.preview.steps); set('p-cfg', d.preview.cfg);
+      set('c-w', d.scene.width); set('c-h', d.scene.height); set('c-steps', d.scene.steps); set('c-cfg', d.scene.cfg);
+    }
+    async function saveSettings(btn) {
+      const num = id => Number(document.getElementById(id).value);
+      const body = {
+        ollama_model: document.getElementById('s-model').value.trim(),
+        checkpoint_name: document.getElementById('s-ckpt').value.trim(),
+        theme: document.getElementById('s-theme').value,
+        sampler: document.getElementById('s-sampler').value.trim(),
+        scheduler: document.getElementById('s-scheduler').value.trim(),
+        preview: { width: num('p-w'), height: num('p-h'), steps: num('p-steps'), cfg: num('p-cfg') },
+        scene: { width: num('c-w'), height: num('c-h'), steps: num('c-steps'), cfg: num('c-cfg') },
+      };
+      btn.disabled = true;
+      try {
+        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        flash('Saved. Applies from the next turn.'); loadStatus();
+      } catch (e) { flash('Could not save.'); }
+      finally { btn.disabled = false; }
+    }
+    function flash(msg) { const m = document.getElementById('s-msg'); m.textContent = msg; setTimeout(() => { m.textContent = ''; }, 2500); }
+
+    // ── Scene editing ──
+    async function loadScene() {
+      try { const d = await (await fetch('/api/scene')).json(); document.getElementById('scene-text').value = d.scene || ''; } catch (e) {}
+    }
+    async function applyScene(btn) {
+      const scene = document.getElementById('scene-text').value.trim();
+      if (!scene) return;
+      btn.disabled = true;
+      try { await fetch('/api/scene', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene }) }); }
+      finally { btn.disabled = false; }
+    }
+
+    // ── Story loop ──
+    async function sendLine() {
+      const input = document.getElementById('story-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      const nar = document.getElementById('narration');
+      nar.textContent = '...';
+      try {
+        const d = await (await fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })).json();
+        nar.textContent = d.reply || '(no response)';
+        if (d.scene) document.getElementById('scene-text').value = d.scene;
+      } catch (e) { nar.textContent = 'Could not reach the story engine.'; }
+    }
+    async function render(kind, btn) {
+      const original = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Rendering...';
+      try {
+        const d = await (await fetch('/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind }) })).json();
+        if (d.status === 'success' && d.url) {
+          document.getElementById(kind === 'preview' ? 'preview-img' : 'scene-img').src = d.url;
+        } else { alert(d.message || 'Render failed.'); }
+      } catch (e) { alert('Could not reach the renderer.'); }
+      finally { btn.disabled = false; btn.textContent = original; }
+    }
+    async function resetStory() {
+      if (!confirm('Start a new story?')) return;
+      await fetch('/reset', { method: 'POST' });
+      location.reload();
+    }
+
+    // init
+    loadStatus();
+    loadScene();
+    setInterval(loadStatus, 15000);
+  </script>
+</body>
+</html>

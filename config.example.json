@@ -1,0 +1,13 @@
+{
+  "comfyui_address": "127.0.0.1:8188",
+  "comfyui_output_dir": "C:/ComfyUI_windows_portable/ComfyUI/output",
+  "checkpoint_name": "put-your-checkpoint-here.safetensors",
+  "ollama_url": "http://localhost:11434/api/chat",
+  "ollama_model": "gemma2:2b",
+  "theme": "adventure",
+  "sampler": "euler",
+  "scheduler": "simple",
+  "server_port": 8000,
+  "preview": { "width": 384, "height": 384, "steps": 6, "cfg": 2.0 },
+  "scene":   { "width": 768, "height": 1024, "steps": 8, "cfg": 2.5 }
+}
