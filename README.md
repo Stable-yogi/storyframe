@@ -71,3 +71,10 @@ there is a short write-up on how the 8GB approach works on the blog there.
 ## License
 
 MIT. Do what you like with it. See `LICENSE`.
+
+---
+
+### More free tools by Stable Yogi
+
+Small, free, open tools for local AI art — Forge / Forge Neo, AUTOMATIC1111, and ComfyUI.
+Browse them all at **[github.com/Stable-yogi](https://github.com/Stable-yogi)** · more at **[stableyogi.com](https://stableyogi.com)**.
